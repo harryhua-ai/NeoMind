@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `PATCH /llm-backends/{id}` now applies `top_k` (previously accepted but silently dropped) and, when the updated backend is the active chat backend, immediately retunes existing and future sessions with the edited settings.
 - Built-in engine instances created on cold-start bootstrap now carry the model catalog's official sampling defaults (temperature/top_p/top_k); request-level params previously shadowed the server-side `--temp/--top-p/--top-k` spawn flags with storage defaults.
 
+### Fixed — runtime guards
+- Streaming chats no longer append the "guard budget spent" progress-note when the user's message was a simple greeting ("你好"/"hi"…): a promise-shaped reply to a greeting is small-model chatter, not a stalled turn. The greeting check is shared with the non-streaming fast path (one detector, same semantics).
+
 ### Fixed — chat requests and conversation history
 - Conversation summaries now reach the model in text and image chats, including streaming and non-streaming requests. Tool continuations, final summaries, and recovery requests retain the same turn-level summary and account for it in the context budget without changing stored history indices.
 - Final-summary requests now omit tool definitions when tools are disabled, preventing the backend's tool-format instructions from conflicting with the request for a direct answer.

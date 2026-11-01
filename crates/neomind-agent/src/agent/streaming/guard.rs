@@ -199,8 +199,16 @@ pub fn should_nudge_narration(
 /// Turn-end progress label: a promise-shaped reply that the nudge did not
 /// (or could not) lift. Suppressed for plan-only requests, where the promise
 /// IS the requested output.
-pub fn should_label_narration(is_narration: bool, no_execution_requested: bool) -> bool {
-    is_narration && !no_execution_requested
+pub fn should_label_narration(
+    is_narration: bool,
+    no_execution_requested: bool,
+    greeting_input: bool,
+) -> bool {
+    // greeting_input: the USER's message was a simple greeting — no action
+    // was requested, so a promise-shaped reply ("好的，我来帮您…：") is
+    // small-model chatter, not a stalled turn. Same suppression rationale
+    // as plan-only.
+    is_narration && !no_execution_requested && !greeting_input
 }
 
 /// Stated-intent directive: the same concrete command was promised on two
@@ -268,9 +276,12 @@ mod tests {
 
     #[test]
     fn label_is_suppressed_for_plan_only_requests() {
-        assert!(should_label_narration(true, false));
-        assert!(!should_label_narration(true, true));
-        assert!(!should_label_narration(false, false));
+        assert!(should_label_narration(true, false, false));
+        assert!(!should_label_narration(true, true, false));
+        assert!(!should_label_narration(false, false, false));
+        // A greeting input suppresses the label: promise-shaped replies to
+        // "你好" are chatter, not a stalled task.
+        assert!(!should_label_narration(true, false, true));
     }
 
     #[test]

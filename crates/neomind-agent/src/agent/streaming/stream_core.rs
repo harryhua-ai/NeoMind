@@ -505,6 +505,9 @@ pub async fn process_stream_events_with_safeguards(
             // output, so neither the nudge nor the progress-report label may
             // fire — forcing execution would contradict the instruction.
             let no_execution_requested = crate::agent::user_requested_no_execution(&user_message);
+            // Greeting inputs ("你好") request no action — suppress the
+            // narration label for their promise-shaped replies.
+            let greeting_input = crate::agent::is_simple_greeting(&user_message);
             // Eval-only ablation switch (`NEOMIND_GUARD_MODE=off`): A/B runs use
             // it to measure the guards' net lift. Output sanitizers (degenerate
             // `[]` recovery) and safety caps stay active.
@@ -2158,6 +2161,7 @@ pub async fn process_stream_events_with_safeguards(
                         && super::guard::should_label_narration(
                             label_narration,
                             no_execution_requested,
+                            greeting_input,
                         );
                     if label_narration {
                         guard_ledger.record(
@@ -2172,8 +2176,10 @@ pub async fn process_stream_events_with_safeguards(
                                 "turn_ends_on_promise"
                             } else if guards_disabled {
                                 "guard_mode_off"
-                            } else {
+                            } else if no_execution_requested {
                                 "plan_only"
+                            } else {
+                                "greeting_input"
                             },
                         );
                     }

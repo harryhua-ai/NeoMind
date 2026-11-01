@@ -1337,23 +1337,8 @@ impl LlmInterface {
 
         // === FAST PATH: Simple greetings ===
         // Bypass LLM for simple greetings to improve response time
-        let trimmed = user_message.trim();
-        let greeting_patterns = [
-            "你好",
-            "您好",
-            "hi",
-            "hello",
-            "嗨",
-            "在吗",
-            "早上好",
-            "下午好",
-            "晚上好",
-        ];
-        let is_greeting = greeting_patterns
-            .iter()
-            .any(|&pat| trimmed.eq_ignore_ascii_case(pat) || trimmed.starts_with(pat));
-
-        if is_greeting && trimmed.len() < 20 {
+        // (is_simple_greeting is shared with the streaming guards).
+        if crate::agent::is_simple_greeting(&user_message) {
             let greeting_response = "您好！我是 NeoMind 智能助手。我可以帮您：\n\
                 • 查看设备列表 - 说「列出设备」\n\
                 • 查询设备数据 - 说「查询温度」\n\

@@ -308,6 +308,29 @@ const PROMISE_HEAD_CHARS: usize = 80;
 /// True when `text` is a short reply that promises a tool action — the
 /// narration-without-action failure the tool loops nudge once before
 /// accepting the turn as complete.
+/// Simple greeting ("你好" / "hi" / "hello" …) under the greeting length
+/// cap. Shared by the non-streaming fast path and the streaming guards —
+/// a greeting requests no action, so a promise-shaped model reply to one is
+/// small-model chatter, not a stalled turn (do NOT label it).
+pub fn is_simple_greeting(text: &str) -> bool {
+    const GREETING_PATTERNS: [&str; 9] = [
+        "你好",
+        "您好",
+        "hi",
+        "hello",
+        "嗨",
+        "在吗",
+        "早上好",
+        "下午好",
+        "晚上好",
+    ];
+    let trimmed = text.trim();
+    trimmed.chars().count() < 20
+        && GREETING_PATTERNS
+            .iter()
+            .any(|&pat| trimmed.eq_ignore_ascii_case(pat) || trimmed.starts_with(pat))
+}
+
 pub fn is_narration_without_action(text: &str) -> bool {
     let trimmed = text.trim();
     if trimmed.chars().count() > NARRATION_MAX_CHARS {
@@ -1131,5 +1154,43 @@ mod narration_tests {
         assert!(!user_requested_no_execution("检查一下设备状态"));
         // Past-tense report is not an instruction not to execute.
         assert!(!user_requested_no_execution("刚才没有执行成功"));
+    }
+}
+
+#[cfg(test)]
+mod greeting_tests {
+    use super::is_simple_greeting;
+
+    #[test]
+    fn greetings_match_under_length_cap() {
+        // starts_with is case-sensitive (legacy fast-path semantics kept):
+        // exact matches work case-insensitively, prefixed text only lowercase.
+        for s in [
+            "你好",
+            "您好",
+            "hi",
+            "HI",
+            "hello",
+            "hello!",
+            "嗨",
+            "在吗",
+            "早上好",
+            "下午好",
+            "晚上好",
+        ] {
+            assert!(is_simple_greeting(s), "{s:?} should be a greeting");
+        }
+    }
+
+    #[test]
+    fn tasks_and_long_text_are_not_greetings() {
+        for s in [
+            "帮我查一下设备",
+            "list the devices",
+            "你好，帮我创建一个温度报警规则，温度超过30度时发消息", // starts with 你好 but >20 chars
+            "Hi there", // case-sensitive starts_with: not a greeting prefix
+        ] {
+            assert!(!is_simple_greeting(s), "{s:?} should NOT be a greeting");
+        }
     }
 }
