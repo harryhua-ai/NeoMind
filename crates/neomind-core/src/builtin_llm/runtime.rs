@@ -562,7 +562,9 @@ mod tests {
         let url = llama_server_url_for("linux", "aarch64", RuntimeVariant::Jetson);
         assert!(url.starts_with(JETSON_RUNTIME_BASE_URL));
         assert!(
-            url.contains(&format!("/releases/download/runtime-{JETSON_RUNTIME_VERSION}/")),
+            url.contains(&format!(
+                "/releases/download/runtime-{JETSON_RUNTIME_VERSION}/"
+            )),
             "url missing runtime tag segment: {url}"
         );
         assert!(
@@ -744,7 +746,9 @@ mod tests {
         let url = llama_server_url_for("linux", "x86_64", RuntimeVariant::Cuda);
         assert!(url.starts_with(JETSON_RUNTIME_BASE_URL));
         assert!(
-            url.contains(&format!("/releases/download/runtime-{LINUX_CUDA_RUNTIME_VERSION}/")),
+            url.contains(&format!(
+                "/releases/download/runtime-{LINUX_CUDA_RUNTIME_VERSION}/"
+            )),
             "url missing runtime tag segment: {url}"
         );
         assert!(
