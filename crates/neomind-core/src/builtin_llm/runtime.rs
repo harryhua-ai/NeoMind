@@ -62,13 +62,13 @@ pub const LLAMA_CPP_VERSION: &str = "b12024";
 /// armv8.2-a + sm_87; see JETSON_RUNTIME_SHA256 for the build recipe).
 /// Decoupled from LLAMA_CPP_VERSION so the official-platform pin can move
 /// while the Jetson asset catches up at its own cadence.
-pub const JETSON_RUNTIME_VERSION: &str = "b11960";
+pub const JETSON_RUNTIME_VERSION: &str = "b12024";
 
 /// Fallback pin for OUR Linux x64 CUDA runtime. Official ubuntu-cuda assets
 /// exist but require glibc 2.38; ours keeps the 22.04 floor (T4-class
 /// fleet), so it moves only when we rebuild it. Other CUDA platforms
 /// (Windows) use the official assets under LLAMA_CPP_VERSION.
-pub const LINUX_CUDA_RUNTIME_VERSION: &str = "b11960";
+pub const LINUX_CUDA_RUNTIME_VERSION: &str = "b12024";
 
 /// The compiled fallback pin for a platform/variant. The RUNTIME effective
 /// pin additionally consults the channel first (see runtime_manager's
@@ -315,7 +315,7 @@ pub fn jetson_runtime_asset(tag: &str) -> String {
 /// Future CI bumps must keep -DGGML_NATIVE=OFF -DGGML_CPU_ARM_ARCH=armv8.2-a
 /// (fixed in NeoMind-Runtimes 26c9b92).
 pub const JETSON_RUNTIME_SHA256: &str =
-    "6bb6ff396a93ad3a481d233d6179bedcdcece4e5c618cf803aaa015e6a808f28";
+    "bc7c089182c4edf1c36a7ff43c64386ba6e8dc60cd4c10098117a8da2c81c618";
 
 /// Our Linux x64 CUDA runtime asset (not an official llama.cpp release —
 /// they ship CPU/Vulkan-only tarballs for linux-x64). Same hosting model as
@@ -348,7 +348,7 @@ pub fn linux_cuda_runtime_asset(tag: &str) -> String {
 /// the 22.04 floor while tracking the current `LLAMA_CPP_VERSION`. SHA for
 /// any OTHER tag comes from the runtime channel (runtimes.json), not here.
 pub const LINUX_CUDA_RUNTIME_SHA256: &str =
-    "bfdbe9d54af279074e66aed4f5ba2971f50414b63fe4885ab9d8cf20ff739200";
+    "e93a154585077e27e7a54e130e24147315a04bef020f89f03dd523c238c5c0b4";
 
 /// Official release asset name for an OS/arch/variant, if one ships. Windows
 /// ships `win-cpu-*` / `win-cuda-*` archives (zip); macos/linux ship `-bin-*`

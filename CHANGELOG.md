@@ -18,7 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed — builtin llama.cpp runtime pin
 - The builtin-engine runtime pin is now CHANNEL-driven at spawn time (`runtimes.json`: per-variant entry → per-platform override → recommended), with the compiled per-variant constant as the offline fallback only. A broken llama.cpp build is remediated by a channel edit — no product release needed.
-- Official-asset platforms (macOS/Windows/Linux CPU) move to llama.cpp b12024: b11960's Metal shaders fail to compile on some macOS versions, crashing every model startup until a manual runtime upgrade. Jetson and the T4-floor Linux-CUDA builds keep their own b11960 pins (decoupled per-variant fallbacks) until their b12024 assets pass on-device smoke tests.
+- Official-asset platforms (macOS/Windows/Linux CPU) move to llama.cpp b12024: b11960's Metal shaders fail to compile on some macOS versions, crashing every model startup until a manual runtime upgrade.
+- Jetson and Linux-CUDA variant pins also move to b12024 after on-device smoke tests passed (Orin sm_87 full layer offload; Tesla T4 CUDA0 inference; SHA-verified) — all platforms now share the b12024 pin, and the channel (`runtimes.json`) serves the same tags so deployed devices upgrade without a product release.
 
 ### Fixed — backend request settings
 - Preserve selected backend sampling and thinking settings through session creation, backend selection, and activation from the settings UI. Explicit session temperature overrides retain priority.
