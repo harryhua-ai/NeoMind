@@ -350,6 +350,10 @@ class TestServer:
             "top_p": float(os.environ.get("AGENT_LLM_TOP_P", "0.85")),
             "thinking_enabled": thinking,
         }
+        # Optional per-model official top_k (llama.cpp catalog cards specify
+        # it; omitting falls back to the API default 20).
+        if os.environ.get("AGENT_LLM_TOP_K"):
+            body["top_k"] = int(os.environ["AGENT_LLM_TOP_K"])
         r = self.post("/llm-backends", body)
         if not r.ok:
             raise RuntimeError(f"create llm backend -> {r.status_code}: {r.text}")
