@@ -21,7 +21,7 @@ use neomind_core::builtin_llm::find::find_llama_server;
 use neomind_core::builtin_llm::runtime::{
     llama_asset_is_zip, llama_asset_name, llama_pin_for, llama_runtime_expected_sha,
     llama_server_cache_dir_for_tag, llama_server_url_for, parse_runtime_cache_name, tag_cmp,
-    try_llama_server_url_for_tag, validate_tag, RuntimeVariant, LLAMA_CPP_VERSION,
+    try_llama_server_url_for_tag, validate_tag, RuntimeVariant,
 };
 use neomind_core::event::NeoMindEvent;
 use neomind_core::eventbus::EventBus;
@@ -396,6 +396,7 @@ fn build_number_in(text: &str) -> Option<String> {
 /// 3. bundled older than the pin → try the pin download first, fall back to
 ///    bundled when offline (zero regression vs. today);
 /// 4. no bundled → pin download (the bare `neomind serve` path).
+///
 /// `pin` is the compiled per-variant floor (channel tags only feed the
 /// download itself, never this matrix).
 #[derive(Debug, Clone, PartialEq)]
@@ -1208,6 +1209,8 @@ mod tests {
     use super::*;
 
     // ---- resolution matrix -------------------------------------------------
+
+    use neomind_core::builtin_llm::runtime::LLAMA_CPP_VERSION;
 
     fn cache(tag: &str) -> Option<(String, PathBuf)> {
         Some((tag.to_string(), PathBuf::from(format!("/x/{tag}"))))
