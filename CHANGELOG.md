@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [1.2.5] - 2026-10-30 — chat context continuity, fresh tool results, and persistent builtin engine settings
+## [1.2.5] - 2026-11-01 — chat context continuity, fresh tool results, and persistent builtin engine settings
 
 ### Highlights
 - Keep conversation summaries and current-task skills available across tool rounds and final replies.
