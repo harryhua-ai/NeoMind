@@ -553,7 +553,7 @@ export function useChatStream(options: UseChatStreamOptions) {
         optionsRef.current.onRawEvent?.(data)
         break
     }
-  }, [hardReset, scheduleFlush, flushNow])
+  }, [hardReset, scheduleFlush, flushNow, stopWatchdog])
 
   // Subscribe for the hook's lifetime; the handler is stable.
   useEffect(() => {

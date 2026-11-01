@@ -701,8 +701,11 @@ async fn bound_backend_settings_reach_streaming_and_nonstreaming_requests() {
         .set_backend_defaults(BackendRequestDefaults::from(&instance))
         .await;
     drain(iface.chat_stream_with_history("hello", &[]).await.unwrap()).await;
-    iface.chat("hello").await.unwrap();
-    other.chat("hello").await.unwrap();
+    // Non-streaming chat() has a greeting fast path that returns a canned
+    // reply without touching the LLM ("hello" matches it) — use a real
+    // request so the captured params can be asserted.
+    iface.chat("list the devices").await.unwrap();
+    other.chat("list the devices").await.unwrap();
     {
         let captured = requests.lock().unwrap();
         assert_eq!(captured.len(), 2);
