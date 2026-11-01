@@ -17,20 +17,25 @@ use std::path::PathBuf;
 /// linux-x64 CUDA stays OUR self-hosted gcc-11 build (see
 /// `linux_cuda_runtime_asset`).
 ///
-/// # Bump runbook (all steps, in order)
+/// # Bump runbook
 ///
-/// 1. Bump this pin — CI's `llama-pin-sync` gate
-///    (scripts/check_llama_pin_sync.py) also requires
-///    `scripts/build-llama-server.sh`'s `LLAMA_CPP_TAG` and
-///    `scripts/install.sh`'s `LLAMA_VERSION` defaults to move with it.
-/// 2. Build + publish the `runtime-<tag>` release assets on
-///    camthink-ai/NeoMind-Runtimes (Jetson via its CI workflow — keep
-///    `-DGGML_NATIVE=OFF -DGGML_CPU_ARM_ARCH=armv8.2-a`; linux-cuda via
-///    the on-device T4 recipe).
-/// 3. Backfill `JETSON_RUNTIME_SHA256` / `LINUX_CUDA_RUNTIME_SHA256` here.
-/// 4. Update `runtimes.json` in NeoMind-Runtimes (the standalone-upgrade
-///    channel: `recommended` + per-variant `tag`/`asset`/`sha256`) — AFTER
-///    the assets exist — then release NeoMind.
+/// The pin is CHANNEL-FIRST at runtime (`runtimes.json`: per-variant entry
+/// → per-platform override → `recommended`, see `runtime_manager::
+/// effective_pin`); these constants are the compiled fallback/offline floor
+/// and the cache-prune floor. The two move on different cadences:
+///
+/// A. Channel-only bump (no product release): edit `runtimes.json`
+///    (`recommended` and/or `recommended_by_platform`) — deployed installs
+///    pick it up at the next spawn / runtime upgrade. Use this to remediate
+///    a broken upstream build quickly (the b11960 macOS Metal case).
+/// B. Compiled bump (product release): 1) move `LLAMA_CPP_VERSION` (and the
+///    sync-gated `LLAMA_CPP_TAG` / `LLAMA_VERSION` script defaults), or the
+///    per-variant `JETSON_RUNTIME_VERSION` / `LINUX_CUDA_RUNTIME_VERSION`;
+///    2) build + publish the matching `runtime-<tag>` self-hosted assets on
+///    camthink-ai/NeoMind-Runtimes (Jetson CI — keep `-DGGML_NATIVE=OFF
+///    -DGGML_CPU_ARM_ARCH=armv8.2-a`; linux-cuda per the T4 recipe);
+///    3) backfill the SHA constants here; 4) mirror the tags in
+///    `runtimes.json` — AFTER the assets exist.
 ///
 /// Runtime updates beyond this pin reach deployed customers through that
 /// channel (see `builtin_llm::runtime_manager` in neomind-api), not through
@@ -45,7 +50,38 @@ use std::path::PathBuf;
 /// import/spawn-arg paths need per-format arms (see runtimes/rknn/README.md
 /// and its redistribution gate before any of that starts). Mirror/air-gap
 /// deployments override the channel via `NEOMIND_RUNTIME_CHANNEL_URL`.
-pub const LLAMA_CPP_VERSION: &str = "b11960";
+/// Pin for OFFICIAL-asset platforms (macOS/Windows/Linux CPU+Vulkan) — the
+/// offline/fallback floor. At runtime the effective pin is CHANNEL-driven
+/// (`runtimes.json`: per-variant entry → per-platform override →
+/// `recommended`); a runtime fix ships as a channel edit, no product release
+/// needed (the b11960 macOS Metal breakage class). The self-hosted variants
+/// have their own fallback pins below.
+pub const LLAMA_CPP_VERSION: &str = "b12024";
+
+/// Fallback pin for OUR Jetson runtime (the only Jetson build that exists —
+/// armv8.2-a + sm_87; see JETSON_RUNTIME_SHA256 for the build recipe).
+/// Decoupled from LLAMA_CPP_VERSION so the official-platform pin can move
+/// while the Jetson asset catches up at its own cadence.
+pub const JETSON_RUNTIME_VERSION: &str = "b11960";
+
+/// Fallback pin for OUR Linux x64 CUDA runtime. Official ubuntu-cuda assets
+/// exist but require glibc 2.38; ours keeps the 22.04 floor (T4-class
+/// fleet), so it moves only when we rebuild it. Other CUDA platforms
+/// (Windows) use the official assets under LLAMA_CPP_VERSION.
+pub const LINUX_CUDA_RUNTIME_VERSION: &str = "b11960";
+
+/// The compiled fallback pin for a platform/variant. The RUNTIME effective
+/// pin additionally consults the channel first (see runtime_manager's
+/// `effective_pin`); this is the offline floor and cache-prune floor.
+pub fn llama_pin_for(os: &str, arch: &str, variant: RuntimeVariant) -> &'static str {
+    if variant == RuntimeVariant::Jetson {
+        JETSON_RUNTIME_VERSION
+    } else if asset_is_self_hosted_linux_cuda(os, arch, variant) {
+        LINUX_CUDA_RUNTIME_VERSION
+    } else {
+        LLAMA_CPP_VERSION
+    }
+}
 
 /// Is this a well-formed llama.cpp release tag (`b` + 4-7 digits)?
 ///
@@ -348,11 +384,18 @@ pub fn llama_asset_name(os: &str, arch: &str, variant: RuntimeVariant) -> Option
     }
 }
 
-/// Release URL for the resolved asset at the CURRENT pin. See
+/// Linux x64 CUDA is OUR self-hosted asset (glibc 2.34 floor for the
+/// T4-class fleet) — every other CUDA platform uses official assets.
+fn asset_is_self_hosted_linux_cuda(os: &str, arch: &str, variant: RuntimeVariant) -> bool {
+    variant == RuntimeVariant::Cuda && matches!((os, arch), ("linux", "x86_64") | ("linux", "x86"))
+}
+
+/// Release URL for the resolved asset at the compiled per-variant pin. See
 /// [`try_llama_server_url_for_tag`] for the tag-parameterized form used by
 /// the standalone runtime upgrade (channel-sourced tags).
 pub fn llama_server_url_for(os: &str, arch: &str, variant: RuntimeVariant) -> String {
-    try_llama_server_url_for_tag(LLAMA_CPP_VERSION, os, arch, variant).unwrap_or_default()
+    try_llama_server_url_for_tag(llama_pin_for(os, arch, variant), os, arch, variant)
+        .unwrap_or_default()
 }
 
 /// Tag-parameterized release URL, `None` when the platform has no prebuilt

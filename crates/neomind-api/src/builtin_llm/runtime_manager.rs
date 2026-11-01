@@ -19,8 +19,9 @@ use std::time::{Duration, Instant};
 use neomind_core::brand::APP_VERSION;
 use neomind_core::builtin_llm::find::find_llama_server;
 use neomind_core::builtin_llm::runtime::{
-    llama_asset_is_zip, llama_asset_name, llama_server_cache_dir_for_tag, parse_runtime_cache_name,
-    tag_cmp, try_llama_server_url_for_tag, validate_tag, RuntimeVariant, LLAMA_CPP_VERSION,
+    llama_asset_is_zip, llama_asset_name, llama_pin_for, llama_runtime_expected_sha,
+    llama_server_cache_dir_for_tag, llama_server_url_for, parse_runtime_cache_name, tag_cmp,
+    try_llama_server_url_for_tag, validate_tag, RuntimeVariant, LLAMA_CPP_VERSION,
 };
 use neomind_core::event::NeoMindEvent;
 use neomind_core::eventbus::EventBus;
@@ -199,16 +200,20 @@ pub fn cache_entries(data_dir: &Path) -> Vec<(String, RuntimeVariant, PathBuf)> 
     out
 }
 
-/// Cache candidates for ONE variant, filtered to `tag >= pin` (the pin is
-/// the floor — an older cache must never block the pin's own download path
-/// after a platform upgrade). Below-floor dirs are pruned on sight.
+/// Cache candidates for ONE variant, filtered by the compiled per-variant
+/// floor (the pin is the floor — an older cache must never block the pin's
+/// own download path after a platform upgrade). Below-floor dirs are pruned
+/// on sight. The CHANNEL can recommend a newer tag for downloads, but it
+/// never raises the prune floor — a usable cache is never destroyed just
+/// because the channel moved.
 pub fn entries_for_variant(data_dir: &Path, variant: RuntimeVariant) -> Vec<(String, PathBuf)> {
+    let floor = llama_pin_for(std::env::consts::OS, std::env::consts::ARCH, variant);
     let mut out = Vec::new();
     for (tag, v, path) in cache_entries(data_dir) {
         if v != variant {
             continue;
         }
-        if tag_cmp(&tag, LLAMA_CPP_VERSION) == std::cmp::Ordering::Less {
+        if tag_cmp(&tag, floor) == std::cmp::Ordering::Less {
             tracing::debug!(
                 dir = %path.display(),
                 "builtin llm: cache below the compiled pin — pruning"
@@ -391,6 +396,8 @@ fn build_number_in(text: &str) -> Option<String> {
 /// 3. bundled older than the pin → try the pin download first, fall back to
 ///    bundled when offline (zero regression vs. today);
 /// 4. no bundled → pin download (the bare `neomind serve` path).
+/// `pin` is the compiled per-variant floor (channel tags only feed the
+/// download itself, never this matrix).
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Decision {
     Cache { tag: String, path: PathBuf },
@@ -402,6 +409,7 @@ pub(crate) enum Decision {
 pub(crate) fn pick_runtime(
     best_cache: Option<(String, PathBuf)>,
     bundled: Option<(PathBuf, Option<String>)>,
+    pin: &str,
 ) -> Decision {
     if let Some((tag, path)) = best_cache {
         let cache_wins = bundled
@@ -415,7 +423,7 @@ pub(crate) fn pick_runtime(
         // >= pin is implied: caches are pin-floored, so bundled > cache >= pin.
     }
     match bundled {
-        Some((path, Some(t))) if tag_cmp(&t, LLAMA_CPP_VERSION) == std::cmp::Ordering::Less => {
+        Some((path, Some(t))) if tag_cmp(&t, pin) == std::cmp::Ordering::Less => {
             Decision::TryPinThenBundled(path)
         }
         Some((path, _)) => Decision::Bundled(path),
@@ -641,6 +649,50 @@ pub struct UpgradeTarget {
     pub sha256: Option<String>,
 }
 
+/// The effective runtime pin for THIS host/variant: the channel doc wins
+/// (per-variant entry → per-platform override → `recommended`, exactly the
+/// upgrade target), with the compiled per-variant pin as the offline
+/// fallback. Dynamic on purpose: a broken llama.cpp build (e.g. the b11960
+/// macOS Metal startup crash) is fixed by editing `runtimes.json`, no
+/// product release required.
+#[derive(Debug, Clone)]
+pub struct EffectivePin {
+    pub tag: String,
+    pub url: String,
+    pub sha256: Option<String>,
+    /// "channel" or "compiled-fallback"
+    pub source: &'static str,
+}
+
+pub async fn effective_pin(variant: RuntimeVariant) -> EffectivePin {
+    if let Some(doc) = fetch_channel(false).await {
+        match resolve_upgrade_target(&doc, variant) {
+            Ok(t) => {
+                return EffectivePin {
+                    tag: t.tag,
+                    url: t.url,
+                    sha256: t.sha256,
+                    source: "channel",
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "builtin llm: channel pin unusable — falling back to the compiled pin"
+                );
+            }
+        }
+    }
+    let os = std::env::consts::OS;
+    let arch = std::env::consts::ARCH;
+    EffectivePin {
+        tag: llama_pin_for(os, arch, variant).to_string(),
+        url: llama_server_url_for(os, arch, variant),
+        sha256: llama_runtime_expected_sha(os, arch, variant).map(str::to_string),
+        source: "compiled-fallback",
+    }
+}
+
 pub fn resolve_upgrade_target(
     doc: &RuntimeChannelDoc,
     variant: RuntimeVariant,
@@ -798,7 +850,12 @@ pub async fn runtime_snapshot(data_dir: &Path) -> serde_json::Value {
     // What resolution WOULD pick right now, without network side effects.
     let same_variant: Vec<(String, PathBuf)> = entries_for_variant(data_dir, variant);
     let bundled_candidate = bundled_path.clone().map(|p| (p, bundled_tag.clone()));
-    let active = match pick_runtime(same_variant.first().cloned(), bundled_candidate) {
+    let compiled_pin = llama_pin_for(std::env::consts::OS, std::env::consts::ARCH, variant);
+    let active = match pick_runtime(
+        same_variant.first().cloned(),
+        bundled_candidate,
+        compiled_pin,
+    ) {
         Decision::Cache { tag, path } => serde_json::json!({
             "variant": vname, "tag": tag, "source": "cache",
             "path": path.to_string_lossy(),
@@ -817,8 +874,8 @@ pub async fn runtime_snapshot(data_dir: &Path) -> serde_json::Value {
             "note": "bundled is older than the platform pin; a newer runtime will be downloaded on next spawn",
         }),
         Decision::TryPin => serde_json::json!({
-            "variant": vname, "tag": LLAMA_CPP_VERSION, "source": "pin-download",
-            "path": llama_server_cache_dir_for_tag(data_dir, LLAMA_CPP_VERSION, variant).to_string_lossy(),
+            "variant": vname, "tag": compiled_pin, "source": "pin-download",
+            "path": llama_server_cache_dir_for_tag(data_dir, compiled_pin, variant).to_string_lossy(),
         }),
     };
 
@@ -839,7 +896,7 @@ pub async fn runtime_snapshot(data_dir: &Path) -> serde_json::Value {
                 let active_tag = active
                     .get("tag")
                     .and_then(|t| t.as_str())
-                    .unwrap_or(LLAMA_CPP_VERSION)
+                    .unwrap_or(compiled_pin)
                     .to_string();
                 update_available = tag_cmp(&target.tag, &active_tag) == std::cmp::Ordering::Greater;
                 recommended = serde_json::json!({
@@ -863,7 +920,7 @@ pub async fn runtime_snapshot(data_dir: &Path) -> serde_json::Value {
         "installed": installed,
         "detected_variant": vname,
         "override_variant": persisted_variant_override().map(|v| variant_name(&v)),
-        "pin": LLAMA_CPP_VERSION,
+        "pin": llama_pin_for(std::env::consts::OS, std::env::consts::ARCH, variant),
         "recommended": recommended,
         "update_available": update_available,
         "channel": channel_state,
@@ -1095,10 +1152,15 @@ async fn current_active_tag(data_dir: &Path, variant: RuntimeVariant) -> Option<
         None => None,
     };
     let best = entries_for_variant(data_dir, variant).into_iter().next();
-    match pick_runtime(best, bundled_path.map(|p| (p, bundled_tag.clone()))) {
+    let compiled_pin = llama_pin_for(std::env::consts::OS, std::env::consts::ARCH, variant);
+    match pick_runtime(
+        best,
+        bundled_path.map(|p| (p, bundled_tag.clone())),
+        compiled_pin,
+    ) {
         Decision::Cache { tag, .. } => Some(tag),
         Decision::Bundled(_) | Decision::TryPinThenBundled(_) => bundled_tag,
-        Decision::TryPin => Some(LLAMA_CPP_VERSION.to_string()),
+        Decision::TryPin => Some(compiled_pin.to_string()),
     }
 }
 
@@ -1161,26 +1223,26 @@ mod tests {
     fn matrix_cache_newer_than_stale_bundled_wins() {
         // The original bug: install.sh left b10545 bundled, upgrade cached
         // b11609 → the cache must win.
-        let d = pick_runtime(cache("b11609"), bundled(Some("b10545")));
+        let d = pick_runtime(cache("b11609"), bundled(Some("b10545")), "b11609");
         assert!(matches!(d, Decision::Cache { tag, .. } if tag == "b11609"));
     }
 
     #[test]
     fn matrix_unknown_bundled_yields_to_cache_but_survives_alone() {
         assert!(matches!(
-            pick_runtime(cache("b11609"), bundled(None)),
+            pick_runtime(cache("b11609"), bundled(None), "b11609"),
             Decision::Cache { .. }
         ));
         // Unknown tag + no cache → today's bundled-first semantics.
         assert!(matches!(
-            pick_runtime(None, bundled(None)),
+            pick_runtime(None, bundled(None), "b11609"),
             Decision::Bundled(_)
         ));
     }
 
     #[test]
     fn matrix_ties_go_to_cache() {
-        let d = pick_runtime(cache("b11609"), bundled(Some("b11609")));
+        let d = pick_runtime(cache("b11609"), bundled(Some("b11609")), "b11609");
         assert!(matches!(d, Decision::Cache { .. }));
     }
 
@@ -1189,24 +1251,31 @@ mod tests {
         // Platform upgrade shipped a bundled runtime newer than the cache.
         // Pin-relative so a pin bump can't silently flip the fixture's
         // meaning (b11700 < pin b11960 made this assert TryPinThenBundled).
-        let d = pick_runtime(cache("b10000"), bundled(Some(LLAMA_CPP_VERSION)));
+        let d = pick_runtime(
+            cache("b10000"),
+            bundled(Some(LLAMA_CPP_VERSION)),
+            LLAMA_CPP_VERSION,
+        );
         assert!(matches!(d, Decision::Bundled(_)));
     }
 
     #[test]
     fn matrix_bundled_below_pin_tries_download_then_falls_back() {
-        let d = pick_runtime(None, bundled(Some("b10545")));
+        let d = pick_runtime(None, bundled(Some("b10545")), "b11609");
         assert!(matches!(d, Decision::TryPinThenBundled(_)));
         // ...but a pin-floored cache still beats it.
-        let d = pick_runtime(cache("b11609"), bundled(Some("b10545")));
+        let d = pick_runtime(cache("b11609"), bundled(Some("b10545")), "b11609");
         assert!(matches!(d, Decision::Cache { .. }));
     }
 
     #[test]
     fn matrix_no_bundled_downloads_pin() {
-        assert!(matches!(pick_runtime(None, None), Decision::TryPin));
         assert!(matches!(
-            pick_runtime(None, bundled(Some(LLAMA_CPP_VERSION))),
+            pick_runtime(None, None, "b11609"),
+            Decision::TryPin
+        ));
+        assert!(matches!(
+            pick_runtime(None, bundled(Some(LLAMA_CPP_VERSION)), LLAMA_CPP_VERSION),
             Decision::Bundled(_)
         ));
     }

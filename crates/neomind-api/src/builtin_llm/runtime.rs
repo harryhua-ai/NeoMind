@@ -15,8 +15,8 @@ use std::sync::{Arc, OnceLock};
 use neomind_core::builtin_llm::find::find_llama_server;
 use neomind_core::builtin_llm::runtime::{
     llama_asset_is_zip, llama_asset_name, llama_cudart_marker, llama_cudart_url_tagged,
-    llama_runtime_expected_sha, llama_server_bin_name, llama_server_cache_dir_for_tag,
-    try_llama_server_url_for_tag, RuntimeVariant, LLAMA_CPP_VERSION,
+    llama_server_bin_name, llama_server_cache_dir_for_tag, try_llama_server_url_for_tag,
+    RuntimeVariant,
 };
 
 use super::runtime_manager::{self, Decision};
@@ -87,7 +87,12 @@ pub async fn ensure_llama_server(data_dir: &Path) -> Result<PathBuf, String> {
             Bin { path: PathBuf, from_cache: bool },
             DownloadPin,
         }
-        let picked = match runtime_manager::pick_runtime(best, bundled) {
+        let compiled_pin = neomind_core::builtin_llm::runtime::llama_pin_for(
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+            variant,
+        );
+        let picked = match runtime_manager::pick_runtime(best, bundled, compiled_pin) {
             Decision::Cache { path: dir, .. } => match find_runtime_binary(&dir) {
                 Some(b) => Picked::Bin {
                     path: b,
@@ -201,20 +206,34 @@ pub async fn ensure_llama_server(data_dir: &Path) -> Result<PathBuf, String> {
 }
 
 /// Download (or reuse from cache) the runtime for ONE variant at the
-/// CURRENT pin — the boot path. The standalone upgrade calls
-/// [`install_runtime`] directly with channel-sourced tags/SHAs.
+/// EFFECTIVE pin — the boot path. The pin is channel-driven
+/// (`runtime_manager::effective_pin`: per-variant entry → per-platform
+/// override → recommended) so a broken llama.cpp build is remedied by a
+/// channel edit; the compiled per-variant constant is only the offline
+/// fallback. The standalone upgrade calls [`install_runtime`] directly with
+/// channel-sourced tags/SHAs.
 async fn ensure_runtime_variant(
     data_dir: &Path,
     variant: RuntimeVariant,
 ) -> Result<PathBuf, String> {
-    let expected_sha =
-        llama_runtime_expected_sha(std::env::consts::OS, std::env::consts::ARCH, variant);
+    let pin = runtime_manager::effective_pin(variant).await;
+    if pin.source == "channel" {
+        tracing::info!(
+            tag = %pin.tag,
+            "builtin llm: boot pin from runtime channel"
+        );
+    }
+    let url_override = if pin.url.is_empty() {
+        None
+    } else {
+        Some(pin.url.as_str())
+    };
     install_runtime(
         data_dir,
         variant,
-        LLAMA_CPP_VERSION,
-        expected_sha,
-        None,
+        &pin.tag,
+        pin.sha256.as_deref(),
+        url_override,
         None,
     )
     .await
@@ -516,7 +535,11 @@ fn extract_archive(bytes: &[u8], out_dir: &Path, is_zip: bool) -> anyhow::Result
 
 /// Version tag for diagnostics/logging.
 pub fn runtime_version() -> &'static str {
-    LLAMA_CPP_VERSION
+    neomind_core::builtin_llm::runtime::llama_pin_for(
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        super::runtime_manager::effective_variant(),
+    )
 }
 
 #[cfg(test)]
@@ -525,14 +548,15 @@ mod tests {
 
     #[test]
     fn cache_dir_is_versioned() {
+        let pin = neomind_core::builtin_llm::runtime::LLAMA_CPP_VERSION;
         let d = llama_server_cache_dir_for_tag(
             std::path::Path::new("/tmp/data"),
-            LLAMA_CPP_VERSION,
+            pin,
             RuntimeVariant::Cpu,
         );
         let s = d.to_string_lossy();
         assert!(s.contains("llama-server"));
-        assert!(s.ends_with(LLAMA_CPP_VERSION));
+        assert!(s.ends_with(pin));
     }
 
     #[test]

@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Recover the chat UI when fallback replies or terminal stream events were previously missed.
 - Selected backends keep their sampling settings through session creation, backend switching, and activation; `top_k` now actually reaches llama.cpp requests.
 
+### Fixed — builtin llama.cpp runtime pin
+- The builtin-engine runtime pin is now CHANNEL-driven at spawn time (`runtimes.json`: per-variant entry → per-platform override → recommended), with the compiled per-variant constant as the offline fallback only. A broken llama.cpp build is remediated by a channel edit — no product release needed.
+- Official-asset platforms (macOS/Windows/Linux CPU) move to llama.cpp b12024: b11960's Metal shaders fail to compile on some macOS versions, crashing every model startup until a manual runtime upgrade. Jetson and the T4-floor Linux-CUDA builds keep their own b11960 pins (decoupled per-variant fallbacks) until their b12024 assets pass on-device smoke tests.
+
 ### Fixed — backend request settings
 - Preserve selected backend sampling and thinking settings through session creation, backend selection, and activation from the settings UI. Explicit session temperature overrides retain priority.
 - Send configured `top_k` in llama.cpp streaming and non-streaming requests, and verify persisted settings against captured HTTP request bodies.
