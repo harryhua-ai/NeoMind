@@ -522,7 +522,7 @@ pub async fn create_backend_handler(
     )
 )]
 pub async fn update_backend_handler(
-    State(_state): State<ServerState>,
+    State(state): State<ServerState>,
     Path(id): Path<String>,
     Json(mut req): Json<UpdateBackendRequest>,
 ) -> HandlerResult<serde_json::Value> {
@@ -611,6 +611,9 @@ pub async fn update_backend_handler(
     }
     if let Some(top_p) = req.top_p {
         instance.top_p = top_p;
+    }
+    if let Some(top_k) = req.top_k {
+        instance.top_k = top_k;
     }
     if let Some(thinking_enabled) = req.thinking_enabled {
         let prev = instance.thinking_enabled;
@@ -706,6 +709,25 @@ pub async fn update_backend_handler(
 
     // Clear cache
     manager.clear_cache();
+
+    // Editing the ACTIVE chat backend must retune sessions immediately:
+    // the session manager holds a snapshot of the backend's request settings
+    // (bound at activation/session-creation time), so without this rebind the
+    // user's temperature/top_p/top_k/thinking edits would only apply after a
+    // restart or manual re-activation. Sessions explicitly bound to a
+    // different backend keep their own settings (isolation by design).
+    let is_active = manager
+        .get_active_instance()
+        .map(|active| active.id == instance.id)
+        .unwrap_or(false);
+    if is_active {
+        state
+            .agents
+            .session_manager
+            .set_llm_backend_instance(&instance)
+            .await
+            .map_err(|e| ErrorResponse::internal(e.to_string()))?;
+    }
 
     ok(json!({
         "id": id,

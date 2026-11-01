@@ -392,6 +392,22 @@ pub async fn bootstrap(
     instance.thinking_enabled = def.default_thinking;
     instance.endpoint = Some(endpoint.clone());
     instance.model = def.manifest.id.clone();
+    // Per-model sampling → instance fields (same as handlers::spawn_builtin_server).
+    // The instance fields are what chat requests send, and request-level
+    // temperature/top_p/top_k OVERRIDE the server-side --temp/--top-p/--top-k
+    // spawn defaults — a bootstrap-created instance that kept the storage
+    // defaults (0.6/0.85/20) would shadow the model's official sampling on
+    // every request. min_p/repeat_penalty have no instance/request field and
+    // stay covered by the spawn flags.
+    if let Some(t) = def.temperature {
+        instance.temperature = t;
+    }
+    if let Some(p) = def.top_p {
+        instance.top_p = p;
+    }
+    if let Some(k) = def.top_k {
+        instance.top_k = k as usize;
+    }
     // Same as handlers::spawn_builtin_server — the capability refresh loop
     // predates this instance; set the ctx the server actually runs with
     // (/props verbatim — no per-slot division; see effective_spawn_ctx).

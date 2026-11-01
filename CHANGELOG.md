@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed — backend request settings
 - Preserve selected backend sampling and thinking settings through session creation, backend selection, and activation from the settings UI. Explicit session temperature overrides retain priority.
 - Send configured `top_k` in llama.cpp streaming and non-streaming requests, and verify persisted settings against captured HTTP request bodies.
+- `PATCH /llm-backends/{id}` now applies `top_k` (previously accepted but silently dropped) and, when the updated backend is the active chat backend, immediately retunes existing and future sessions with the edited settings.
+- Built-in engine instances created on cold-start bootstrap now carry the model catalog's official sampling defaults (temperature/top_p/top_k); request-level params previously shadowed the server-side `--temp/--top-p/--top-k` spawn flags with storage defaults.
 
 ### Fixed — chat requests and conversation history
 - Conversation summaries now reach the model in text and image chats, including streaming and non-streaming requests. Tool continuations, final summaries, and recovery requests retain the same turn-level summary and account for it in the context budget without changing stored history indices.
