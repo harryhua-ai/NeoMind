@@ -562,11 +562,11 @@ mod tests {
         let url = llama_server_url_for("linux", "aarch64", RuntimeVariant::Jetson);
         assert!(url.starts_with(JETSON_RUNTIME_BASE_URL));
         assert!(
-            url.contains(&format!("/releases/download/runtime-{LLAMA_CPP_VERSION}/")),
+            url.contains(&format!("/releases/download/runtime-{JETSON_RUNTIME_VERSION}/")),
             "url missing runtime tag segment: {url}"
         );
         assert!(
-            url.ends_with(&jetson_runtime_asset(LLAMA_CPP_VERSION)),
+            url.ends_with(&jetson_runtime_asset(JETSON_RUNTIME_VERSION)),
             "url: {url}"
         );
         // Non-Jetson linux-aarch64 must keep the official asset URL.
@@ -744,11 +744,11 @@ mod tests {
         let url = llama_server_url_for("linux", "x86_64", RuntimeVariant::Cuda);
         assert!(url.starts_with(JETSON_RUNTIME_BASE_URL));
         assert!(
-            url.contains(&format!("/releases/download/runtime-{LLAMA_CPP_VERSION}/")),
+            url.contains(&format!("/releases/download/runtime-{LINUX_CUDA_RUNTIME_VERSION}/")),
             "url missing runtime tag segment: {url}"
         );
         assert!(
-            url.ends_with(&linux_cuda_runtime_asset(LLAMA_CPP_VERSION)),
+            url.ends_with(&linux_cuda_runtime_asset(LINUX_CUDA_RUNTIME_VERSION)),
             "url: {url}"
         );
         // Self-hosted ⇒ SHA-pinned; aarch64 CUDA has no asset ⇒ no pin.
